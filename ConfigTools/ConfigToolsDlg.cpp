@@ -60,6 +60,7 @@ CConfigToolsDlg::CConfigToolsDlg(CWnd* pParent /*=NULL*/)
 void CConfigToolsDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_LIST_SEARCH, m_listSearch);
 }
 
 BEGIN_MESSAGE_MAP(CConfigToolsDlg, CDialogEx)
@@ -67,6 +68,7 @@ BEGIN_MESSAGE_MAP(CConfigToolsDlg, CDialogEx)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
 	ON_BN_CLICKED(IDC_BUTTON_SAVE_CONFIG, &CConfigToolsDlg::OnBnClickedButtonSaveConfig)
+	ON_BN_CLICKED(IDC_BUTTON_ADDTBL, &CConfigToolsDlg::OnBnClickedButtonAddtbl)
 END_MESSAGE_MAP()
 
 
@@ -102,7 +104,8 @@ BOOL CConfigToolsDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// Set small icon
 
 	// TODO: Add extra initialization here
-	
+
+	InitSearchListCtrl();
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
 
@@ -155,7 +158,7 @@ HCURSOR CConfigToolsDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-BOOL CConfigToolsDlg::SaveSqlConfig(const T_APP_COMMON_INFO &commonInfo)
+BOOL CConfigToolsDlg::GenerateSqlConfig(const T_APP_COMMON_INFO &commonInfo)
 {
 	//MFCONFIG.db 
 	//TBL_CF_MARK_TABLE_REF_CONFIG
@@ -198,7 +201,15 @@ BOOL CConfigToolsDlg::SaveSqlConfig(const T_APP_COMMON_INFO &commonInfo)
 
 	//-- TBL_RC_FULL_TEXT_SEARCH_INFO
 	strSqlConfig.append("-- TBL_RC_FULL_TEXT_SEARCH_INFO\r\n");
-	return TRUE;
+
+	for (size_t i = 0; i < m_vecTblName.size(); i++)
+	{
+		strSqlConfig.append("insert into [main].[TBL_RC_FULL_TEXT_SEARCH_INFO] values('");
+		strSqlConfig += commonInfo.strAppChName + "', '" + commonInfo.strAppEnName + "', '" + m_vecTblName[i] + "', '";
+		strSqlConfig += m_vecTblFiled[i] + "', '" + g_strRetrieveType + "', " + std::to_string(commonInfo.nAcType) + ", '" + commonInfo.strAcType + "');";
+		strSqlConfig += "\r\n";
+	}
+	return SaveSqlConfig(strSqlConfig);
 }
 
 BOOL CConfigToolsDlg::SavePersonalMapInfo()
@@ -323,10 +334,36 @@ void CConfigToolsDlg::OnBnClickedButtonSaveConfig()
 	{
 		MessageBox(L"支持的人物属性没有任何勾选");
 	}
-	SaveSqlConfig(tCommInfo);
+	GenerateSqlConfig(tCommInfo);
 }
 
+BOOL CConfigToolsDlg::SaveSqlConfig(const std::string &strConfigSql)
+{
+	//当前路径，config.sql
+	BOOL bRet = FALSE;
+	TCHAR tcsExeDirPath[MAX_PATH + 1] = { 0 };
+	GetModuleFileName(NULL, tcsExeDirPath, sizeof(tcsExeDirPath)-1);
+	*(_tcsrchr(tcsExeDirPath, L'\\') + 1) = 0x00;
 
+	CString strPath = tcsExeDirPath;
+	strPath += "config.sql";
+
+	HANDLE hFile = ::CreateFile(strPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, NULL, NULL);
+	if (hFile != INVALID_HANDLE_VALUE)
+	{
+		DWORD nNumberOfBytesWritten;
+		WriteFile(hFile, strConfigSql.c_str(), strConfigSql.length(), &nNumberOfBytesWritten, NULL);
+		if (nNumberOfBytesWritten > 0)
+		{
+			MessageBox(L"保存配置文件成功");
+			bRet = TRUE;
+		}
+		// TODO ...
+
+		CloseHandle(hFile);
+	}
+	return bRet;
+}
 
 BOOL CConfigToolsDlg::PreTranslateMessage(MSG* pMsg)
 {
@@ -343,4 +380,37 @@ BOOL CConfigToolsDlg::PreTranslateMessage(MSG* pMsg)
 	}
 
 	return CDialogEx::PreTranslateMessage(pMsg);
+}
+
+VOID CConfigToolsDlg::InitSearchListCtrl()
+{
+	DWORD dwStyle = m_listSearch.GetStyle();		//获取当前样式
+	dwStyle |= LVS_EX_FULLROWSELECT;//选中某行使整行高亮（只适用与report风格的listctrl）
+	dwStyle |= LVS_EX_FULLROWSELECT;		//更改样式为每次选择一行
+	m_listSearch.SetExtendedStyle(dwStyle);
+
+	CRect rect;
+	m_listSearch.GetClientRect(&rect);
+	m_listSearch.InsertColumn(0, _T("表名"), LVCFMT_LEFT, rect.Width() / 5 * 3, 0);		// 插入第2列的列名
+	m_listSearch.InsertColumn(1, _T("字段名"), LVCFMT_LEFT, rect.Width() / 5 * 2, 1);		// 插入第3列的列名
+}
+
+void CConfigToolsDlg::OnBnClickedButtonAddtbl()
+{
+	// TODO: Add your control notification handler code here
+	CSearchInfoDlg searchDlg;
+	searchDlg.DoModal();
+	int nAddCount = searchDlg.tblNameVec.size();
+	for (int i = 0; i < nAddCount; i++)
+	{
+		int nCurrnetCount = m_listSearch.GetItemCount();
+		m_listSearch.InsertItem(nCurrnetCount, searchDlg.tblNameVec[i]);
+		m_listSearch.SetItemText(nCurrnetCount, 1, searchDlg.tblFiledVec[i]);
+		
+		m_vecTblName.push_back((std::string)CT2A(searchDlg.tblNameVec[i].GetBuffer()));
+		m_vecTblFiled.push_back((std::string)CT2A(searchDlg.tblFiledVec[i].GetBuffer()));
+
+		searchDlg.tblNameVec[i].ReleaseBuffer();
+		searchDlg.tblFiledVec[i].ReleaseBuffer();
+	}
 }
